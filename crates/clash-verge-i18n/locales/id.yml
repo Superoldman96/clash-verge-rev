@@ -1,4 +1,8 @@
 _version: 1
+errors:
+  cvdDeviceLimit: Batas perangkat tercapai. Lepaskan perangkat lama di dasbor penyedia Anda, lalu coba lagi.
+  cvdKeyMissing: Kunci perangkat untuk langganan ini tidak ada (perangkat mungkin telah dipulihkan). Hapus dan tambahkan kembali langganan untuk mendaftarkannya ulang.
+  cvdKeyReregistered: Kunci perangkat untuk langganan ini didaftarkan ulang; akan disinkronkan pada pembaruan berikutnya.
 notifications:
   dashboardToggled:
     title: Dasbor

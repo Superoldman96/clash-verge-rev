@@ -352,7 +352,8 @@
         "webdavRefreshSuccess": "WebDAV refresh succeeded",
         "webdavRefreshFailed": "WebDAV refresh failed: {{error}}",
         "confirmDelete": "이 백업 파일을 삭제하시겠습니까?",
-        "confirmRestore": "이 백업 파일을 복원하시겠습니까?"
+        "confirmRestore": "이 백업 파일을 복원하시겠습니까?",
+        "restoreCvdWarning": "Subscription device keys live in this device's keychain, not in the backup. Restoring on the same device reuses the existing keys. On a new device or after reinstalling (keychain cleared), each remote subscription registers a new device key on its next update — if your provider limits devices, you may need to unbind old ones."
       },
       "auto": {
         "title": "Automatic backup",

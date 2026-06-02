@@ -472,6 +472,15 @@ export const BackupHistoryViewer = ({
             {pendingConfirmation.filename}
           </Typography>
         )}
+        {pendingConfirmation?.action === 'restore' && (
+          <Typography
+            variant="caption"
+            color="warning.main"
+            sx={{ display: 'block', mt: 1.5 }}
+          >
+            {t('settings.modals.backup.messages.restoreCvdWarning')}
+          </Typography>
+        )}
       </BaseDialog>
     </BaseDialog>
   )

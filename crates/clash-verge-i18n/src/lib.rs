@@ -90,6 +90,29 @@ macro_rules! t {
 mod test {
     use super::resolve_supported_language;
 
+    /// Keys surfaced to users (e.g. CVD device-limit) must exist in every locale, otherwise that
+    /// locale silently falls back to Chinese. Cheap structural check: each `.yml` must mention the
+    /// key. Add new user-facing backend keys here when introduced.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn all_locales_define_user_facing_keys() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/locales");
+        let required = ["cvdDeviceLimit", "cvdKeyMissing", "cvdKeyReregistered"];
+        let mut checked = 0;
+        for entry in std::fs::read_dir(dir).expect("read locales dir") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("yml") {
+                continue;
+            }
+            let content = std::fs::read_to_string(&path).expect("read locale file");
+            for key in required {
+                assert!(content.contains(key), "{path:?} is missing required key `{key}`");
+            }
+            checked += 1;
+        }
+        assert!(checked >= 13, "expected at least 13 locale files, found {checked}");
+    }
+
     #[test]
     fn test_resolve_supported_language() {
         assert_eq!(resolve_supported_language("en").as_deref(), Some("en"));

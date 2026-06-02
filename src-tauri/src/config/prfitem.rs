@@ -58,6 +58,20 @@ pub struct PrfItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub home: Option<String>,
 
+    /// Retained for backward compatibility only. This field does NOT gate CVD; a missing or `false`
+    /// value never disables it. Kept so older `profiles.yaml` entries deserialize without losing
+    /// data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cvd_enabled: Option<bool>,
+
+    /// Cached CVD device **public** key (base64url, 32 bytes) for this remote subscription. This is
+    /// NOT a secret — it is advertised in the `X-CVD-Pub` header whenever CVD is active. It lives
+    /// here so a refresh can build the request header without touching the OS keychain (which, per
+    /// profile, would prompt on macOS). The matching private key stays in the keychain under
+    /// `cvd/<uid>`. Absent for local profiles, pre-CVD remotes, and airports we never tried CVD on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cvd_pub: Option<String>,
+
     /// the file data
     #[serde(skip)]
     pub file_data: Option<String>,
@@ -154,7 +168,10 @@ impl PrfOption {
 impl PrfItem {
     /// From partial item
     /// must contain `itype`
-    pub async fn from(item: &Self, file_data: Option<String>) -> Result<Self> {
+    /// Build a new profile item. For remote items the returned [`crate::cvd::DeviceKey`] (if any)
+    /// must be persisted by the caller **after** the item is saved — see
+    /// [`crate::config::profiles_append_item_with_filedata_safe`].
+    pub async fn from(item: &Self, file_data: Option<String>) -> Result<(Self, Option<crate::cvd::DeviceKey>)> {
         if item.itype.is_none() {
             bail!("type should not be null");
         }
@@ -171,14 +188,42 @@ impl PrfItem {
                     .ok_or_else(|| anyhow::anyhow!("url should not be null"))?;
                 let name = item.name.as_ref();
                 let desc = item.desc.as_ref();
-                let option = item.option.as_ref();
-                Self::from_url(url, name, desc, option).await
+
+                // Mint the uid and the device key once, and reuse the key across the proxy-fallback
+                // retry so both attempts present the SAME public key (one server slot). The key is
+                // returned to the caller, which persists it to the keychain only after the profile is
+                // saved — so a failed create never writes (and never orphans) a key.
+                let uid = help::get_uid("R");
+                let key = crate::cvd::DeviceKey::generate(&uid);
+
+                let built = match Self::from_url(
+                    url,
+                    name,
+                    desc,
+                    item.option.as_ref(),
+                    &uid,
+                    crate::cvd::CvdMode::New(&key),
+                )
+                .await
+                {
+                    Ok(out) => out,
+                    Err(primary_err) => {
+                        // Retry once via the Clash self-proxy, reusing the same uid/key.
+                        let mut retry_opt = item.option.clone().unwrap_or_default();
+                        retry_opt.self_proxy = Some(true);
+                        retry_opt.with_proxy = Some(false);
+                        Self::from_url(url, name, desc, Some(&retry_opt), &uid, crate::cvd::CvdMode::New(&key))
+                            .await
+                            .map_err(|_| primary_err)?
+                    }
+                };
+                Ok((built, Some(key)))
             }
             "local" => {
                 let name = item.name.clone().unwrap_or_else(|| "Local File".into());
                 let desc = item.desc.clone().unwrap_or_else(|| "".into());
                 let option = item.option.as_ref();
-                Self::from_local(name, desc, file_data, option).await
+                Ok((Self::from_local(name, desc, file_data, option).await?, None))
             }
             typ => bail!("invalid profile item type \"{typ}\""),
         }
@@ -246,6 +291,8 @@ impl PrfItem {
                 ..PrfOption::default()
             }),
             home: None,
+            cvd_enabled: None,
+            cvd_pub: None,
             updated: Some(chrono::Local::now().timestamp() as usize),
             file_data: Some(file_data.unwrap_or_else(|| tmpl::ITEM_LOCAL.into())),
         })
@@ -253,11 +300,17 @@ impl PrfItem {
 
     /// ## Remote type
     /// create a new item from url
+    #[allow(clippy::cognitive_complexity)]
     pub async fn from_url(
         url: &str,
         name: Option<&String>,
         desc: Option<&String>,
         option: Option<&PrfOption>,
+        // The stable uid for this profile (= its `<uid>.yaml` and keychain `cvd/<uid>`). The caller
+        // always chooses it: a fresh id for a new profile, or the existing id when refreshing.
+        uid: &str,
+        // How to use CVD this fetch. The caller owns the device-key lifecycle; `from_url` only reads.
+        cvd: crate::cvd::CvdMode<'_>,
     ) -> Result<Self> {
         let with_proxy = option.is_some_and(|o| o.with_proxy.unwrap_or(false));
         let self_proxy = option.is_some_and(|o| o.self_proxy.unwrap_or(false));
@@ -283,6 +336,18 @@ impl PrfItem {
 
         let url = fix_dirty_url(url)?;
 
+        let uid: String = uid.into();
+
+        // Build the CVD request header from the caller-supplied key (new) or cached public key
+        // (refresh). `from_url` never writes the keychain: new keys are persisted by the caller only
+        // after the profile is saved, and refreshes read the private key lazily (only to decrypt).
+        let cvd_headers = cvd
+            .header_public()
+            .map(|pk| crate::cvd::request_headers(&pk))
+            .unwrap_or_default();
+        // Public key (non-secret) to cache on the built item so future refreshes need no keychain.
+        let cvd_pub_cache = cvd.cached_public_b64();
+
         // 使用网络管理器发送请求
         let resp = match NetworkManager::new()
             .get_with_interrupt(
@@ -291,6 +356,7 @@ impl PrfItem {
                 Some(timeout),
                 user_agent.clone(),
                 accept_invalid_certs,
+                cvd_headers,
             )
             .await
         {
@@ -302,9 +368,48 @@ impl PrfItem {
         };
 
         let status_code = resp.status();
-        if !status_code.is_success() {
+
+        // CVD: classify the response before the generic status check (device-limit is a 403).
+        // Only when CVD is active this fetch (we advertised a public key).
+        let cvd_yaml: Option<std::string::String> = if cvd.is_active() {
+            match crate::cvd::parse_response(status_code, resp.headers(), resp.text_with_charset()?) {
+                crate::cvd::CvdResponse::Encrypted { aead, payload } => match &cvd {
+                    // New profile: decrypt with the caller's in-memory key (not yet in the keychain).
+                    crate::cvd::CvdMode::New(key) => Some(key.open(aead, &payload)?),
+                    // Refresh: read the private key lazily — only now, only for an actual ciphertext.
+                    crate::cvd::CvdMode::Existing { .. } => match crate::cvd::load_device_secret(uid.as_str())? {
+                        Some(secret) => Some(crate::cvd::open_with_secret(&secret, aead, &payload)?),
+                        // Cached public key but no private key → the device was restored, or an earlier
+                        // persist failed. This response was sealed to the lost key and is unrecoverable;
+                        // signal the caller (which re-registers a fresh key for the next refresh). We
+                        // stay pure here — no keychain or profile write inside from_url.
+                        None => return Err(anyhow::Error::new(crate::cvd::CvdKeyMissing)),
+                    },
+                    crate::cvd::CvdMode::Disabled => None, // unreachable: cvd.is_active() == false here
+                },
+                crate::cvd::CvdResponse::DeviceLimit => {
+                    bail!("{}", clash_verge_i18n::t!("errors.cvdDeviceLimit"))
+                }
+                crate::cvd::CvdResponse::Error(msg) => bail!(msg),
+                crate::cvd::CvdResponse::Plaintext => None, // airport does not support CVD — use plaintext
+            }
+        } else {
+            None
+        };
+
+        if cvd_yaml.is_none() && !status_code.is_success() {
             bail!("failed to fetch remote profile with status {status_code}")
         }
+
+        // Keep a device key ONLY when CVD actually engaged (the server returned ciphertext). A
+        // brand-new profile whose airport answered in plaintext drops the key entirely: caching its
+        // public key and persisting its private key would be a pointless keychain write — and on
+        // macOS, a password prompt — for a feature the server isn't using. Refreshes keep their
+        // existing cached key regardless (cvd_yaml.is_some() iff we decrypted ciphertext).
+        let cvd_pub_cache = match cvd {
+            crate::cvd::CvdMode::New(_) if cvd_yaml.is_none() => None,
+            _ => cvd_pub_cache,
+        };
 
         let header = resp.headers();
 
@@ -374,12 +479,14 @@ impl PrfItem {
             None => None,
         };
 
-        let uid = help::get_uid("R").into();
         let file = format!("{uid}.yaml").into();
         let name = name
             .map(|s| s.to_owned())
             .unwrap_or_else(|| filename.map(|s| s.into()).unwrap_or_else(|| "Remote File".into()));
-        let data = resp.text_with_charset()?;
+        let data = match cvd_yaml.as_deref() {
+            Some(yaml) => yaml,
+            None => resp.text_with_charset()?,
+        };
 
         // process the charset "UTF-8 with BOM"
         let data = data.trim_start_matches('\u{feff}');
@@ -437,6 +544,9 @@ impl PrfItem {
                 ..PrfOption::default()
             }),
             home,
+            cvd_enabled: None,
+            // Cache the (non-secret) public key so future refreshes need no keychain access.
+            cvd_pub: cvd_pub_cache.map(Into::into),
             updated: Some(chrono::Local::now().timestamp() as usize),
             file_data: Some(data.into()),
         })

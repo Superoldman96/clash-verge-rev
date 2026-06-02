@@ -1,4 +1,8 @@
 _version: 1
+errors:
+  cvdDeviceLimit: Se alcanzó el límite de dispositivos. Desvincula un dispositivo antiguo en el panel de tu proveedor e inténtalo de nuevo.
+  cvdKeyMissing: Falta la clave de dispositivo de esta suscripción (es posible que el dispositivo se haya restaurado). Elimina y vuelve a añadir la suscripción para registrarla de nuevo.
+  cvdKeyReregistered: Se volvió a registrar la clave de dispositivo de esta suscripción; se sincronizará en la próxima actualización.
 notifications:
   dashboardToggled:
     title: Panel

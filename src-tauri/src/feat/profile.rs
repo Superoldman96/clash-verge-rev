@@ -1,6 +1,9 @@
 use crate::{
     cmd,
-    config::{Config, PrfItem, PrfOption, profiles::profiles_draft_update_item_safe},
+    config::{
+        Config, PrfItem, PrfOption,
+        profiles::{profiles_draft_update_item_safe, profiles_set_cvd_pub_safe},
+    },
     core::{CoreManager, handle, tray, validate::ValidationOutcome},
     utils::help::{mask_err, mask_url},
 };
@@ -97,6 +100,82 @@ async fn should_update_profile(uid: &String, ignore_auto_update: bool) -> Result
     }
 }
 
+/// Persist a freshly-created CVD device key after a successful update (write-key-last), but ONLY if
+/// CVD actually engaged this fetch — i.e. the built item cached a public key because the server
+/// returned ciphertext. A plaintext airport leaves `cvd_pub` None, so we never write the keychain
+/// (which on macOS would pop a password prompt for a key the server isn't even using). Best-effort:
+/// a failed write just means the key self-heals on the next ciphertext.
+fn persist_cvd_key(item: &PrfItem, key: Option<&crate::cvd::DeviceKey>) {
+    if item.cvd_pub.is_some()
+        && let Some(key) = key
+        && let Err(e) = key.persist()
+    {
+        logging!(
+            warn,
+            Type::Config,
+            "cvd: failed to persist device key after update: {e}"
+        );
+    }
+}
+
+/// On a missing-private-key error from a refresh (the device was restored, or an earlier `persist`
+/// failed), re-register: mint a fresh key, store it, and repoint the profile's cached public key so
+/// the NEXT refresh registers it with the airport and decrypts. If the keychain itself is
+/// unavailable, clear the cached pubkey instead — the profile goes dormant until a later manual
+/// update re-creates it (so we never loop, minting a new server slot each retry).
+///
+/// Returns `Some(message)` if it handled a key-missing error (the caller must stop retrying: this
+/// response was sealed to the lost key and can't be read), or `None` for any other error.
+///
+/// No orphan risk: the key is written for a profile that already exists — there is no `append` that
+/// could fail and strand it.
+async fn try_cvd_reregister(uid: &String, err: &anyhow::Error) -> Option<std::string::String> {
+    // Only handle the missing-key signal; any other error → None (caller keeps retrying).
+    err.downcast_ref::<crate::cvd::CvdKeyMissing>()?;
+    let newkey = crate::cvd::DeviceKey::generate(uid);
+
+    // ORDER MATTERS: record the new public key BEFORE writing the private key. If we persisted first
+    // and the cvd_pub write then failed, the keychain would hold the NEW private key while
+    // profiles.yaml still advertised the OLD public key. The server would seal to OLD, we'd hold only
+    // NEW, and decryption would fail as a plain *error* (not "key missing") — so recovery would never
+    // re-trigger and the profile would be stuck forever. Writing cvd_pub first means every failure
+    // below leaves a self-healing "key missing" state (no private key for the advertised pubkey).
+    if let Err(e) = profiles_set_cvd_pub_safe(uid.as_str(), Some(newkey.public_b64().into())).await {
+        // Could not record the new pubkey → leave the existing missing-key state untouched; it
+        // self-heals on the next refresh (cvd_pub still points at a key we don't have → CvdKeyMissing).
+        logging!(
+            warn,
+            Type::Config,
+            "[CVD] could not record re-registered pubkey for {uid}: {e}; will retry next refresh"
+        );
+        return Some(clash_verge_i18n::t!("errors.cvdKeyMissing").into_owned());
+    }
+
+    // cvd_pub now references the new key; persist the matching private key.
+    match newkey.persist() {
+        Ok(()) => {
+            logging!(
+                info,
+                Type::Config,
+                "[CVD] re-registered device key for {uid}; next refresh will sync"
+            );
+            Some(clash_verge_i18n::t!("errors.cvdKeyReregistered").into_owned())
+        }
+        Err(e) => {
+            // Keychain unavailable/denied → drop the cvd_pub claim so the profile goes dormant instead
+            // of re-minting (and burning a server slot) on every refresh. Best-effort: if this clear
+            // also fails the state is still "key missing" (self-healing), never the stuck mismatch.
+            let _ = profiles_set_cvd_pub_safe(uid.as_str(), None).await;
+            logging!(
+                warn,
+                Type::Config,
+                "[CVD] re-register failed (keychain unavailable) for {uid}: {e}"
+            );
+            Some(clash_verge_i18n::t!("errors.cvdKeyMissing").into_owned())
+        }
+    }
+}
+
 async fn perform_profile_update(
     uid: &String,
     url: &String,
@@ -117,15 +196,39 @@ async fn perform_profile_update(
         .cloned()
         .unwrap_or_else(|| String::from("UnKnown Profile"));
 
+    // Decide how this refresh uses CVD. A profile that already cached its public key refreshes with
+    // it WITHOUT touching the keychain (so silent auto-updates never prompt on macOS); the private
+    // key is read lazily, only if the server actually returns ciphertext. A pre-CVD profile (no
+    // cached key) gets a new key only on a MANUAL update — a silent auto-update stays plaintext so
+    // it can never trigger a keychain prompt. All three proxy retries share one key → one slot.
+    let cvd_pub_cached = profiles_arc
+        .get_item(uid.as_str())
+        .ok()
+        .and_then(|it| it.cvd_pub.as_deref().and_then(crate::cvd::public_from_b64));
+    let new_key = if cvd_pub_cached.is_none() && is_mannual_trigger {
+        Some(crate::cvd::DeviceKey::generate(uid))
+    } else {
+        None
+    };
+    let cvd_mode = match (cvd_pub_cached, new_key.as_ref()) {
+        (Some(public), _) => crate::cvd::CvdMode::Existing { public },
+        (None, Some(key)) => crate::cvd::CvdMode::New(key),
+        (None, None) => crate::cvd::CvdMode::Disabled,
+    };
+
     let mut last_err;
 
-    match PrfItem::from_url(url, None, None, merged_opt.as_ref()).await {
+    match PrfItem::from_url(url, None, None, merged_opt.as_ref(), uid.as_str(), cvd_mode).await {
         Ok(mut item) => {
             logging!(info, Type::Config, "[订阅更新] 更新订阅配置成功");
             profiles_draft_update_item_safe(uid, &mut item).await?;
+            persist_cvd_key(&item, new_key.as_ref());
             return Ok(is_current);
         }
         Err(err) => {
+            if let Some(msg) = try_cvd_reregister(uid, &err).await {
+                bail!("{msg}");
+            }
             logging!(
                 warn,
                 Type::Config,
@@ -139,15 +242,19 @@ async fn perform_profile_update(
     merged_opt.get_or_insert_with(PrfOption::default).self_proxy = Some(true);
     merged_opt.get_or_insert_with(PrfOption::default).with_proxy = Some(false);
 
-    match PrfItem::from_url(url, None, None, merged_opt.as_ref()).await {
+    match PrfItem::from_url(url, None, None, merged_opt.as_ref(), uid.as_str(), cvd_mode).await {
         Ok(mut item) => {
             logging!(info, Type::Config, "[订阅更新] 使用 Clash代理 更新订阅配置成功");
             profiles_draft_update_item_safe(uid, &mut item).await?;
+            persist_cvd_key(&item, new_key.as_ref());
             handle::Handle::notice_message("update_with_clash_proxy", profile_name);
             drop(last_err);
             return Ok(is_current);
         }
         Err(err) => {
+            if let Some(msg) = try_cvd_reregister(uid, &err).await {
+                bail!("{msg}");
+            }
             logging!(
                 warn,
                 Type::Config,
@@ -161,15 +268,19 @@ async fn perform_profile_update(
     merged_opt.get_or_insert_with(PrfOption::default).self_proxy = Some(false);
     merged_opt.get_or_insert_with(PrfOption::default).with_proxy = Some(true);
 
-    match PrfItem::from_url(url, None, None, merged_opt.as_ref()).await {
+    match PrfItem::from_url(url, None, None, merged_opt.as_ref(), uid.as_str(), cvd_mode).await {
         Ok(mut item) => {
             logging!(info, Type::Config, "[订阅更新] 使用 系统代理 更新订阅配置成功");
             profiles_draft_update_item_safe(uid, &mut item).await?;
+            persist_cvd_key(&item, new_key.as_ref());
             handle::Handle::notice_message("update_with_clash_proxy", profile_name);
             drop(last_err);
             return Ok(is_current);
         }
         Err(err) => {
+            if let Some(msg) = try_cvd_reregister(uid, &err).await {
+                bail!("{msg}");
+            }
             logging!(
                 warn,
                 Type::Config,

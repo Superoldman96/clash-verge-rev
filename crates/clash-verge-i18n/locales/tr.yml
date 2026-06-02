@@ -1,4 +1,8 @@
 _version: 1
+errors:
+  cvdDeviceLimit: Cihaz sınırına ulaşıldı. Lütfen sağlayıcı panelinden eski bir cihazı kaldırıp tekrar deneyin.
+  cvdKeyMissing: Bu aboneliğin cihaz anahtarı eksik (cihaz geri yüklenmiş olabilir). Yeniden kaydetmek için aboneliği kaldırıp tekrar ekleyin.
+  cvdKeyReregistered: Bu abonelik için cihaz anahtarı yeniden kaydedildi; bir sonraki güncellemede eşitlenecek.
 notifications:
   dashboardToggled:
     title: Gösterge Paneli

@@ -526,6 +526,7 @@ export const translationKeys = [
   'settings.modals.backup.messages.webdavRefreshFailed',
   'settings.modals.backup.messages.confirmDelete',
   'settings.modals.backup.messages.confirmRestore',
+  'settings.modals.backup.messages.restoreCvdWarning',
   'settings.modals.backup.auto.title',
   'settings.modals.backup.auto.scheduleLabel',
   'settings.modals.backup.auto.scheduleHelper',

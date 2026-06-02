@@ -352,7 +352,8 @@
         "webdavRefreshSuccess": "WebDAV refresh succeeded",
         "webdavRefreshFailed": "WebDAV refresh failed: {{error}}",
         "confirmDelete": "هل تريد بالتأكيد حذف ملف النسخة الاحتياطية هذا؟",
-        "confirmRestore": "هل تريد بالتأكيد استعادة ملف النسخة الاحتياطية هذا؟"
+        "confirmRestore": "هل تريد بالتأكيد استعادة ملف النسخة الاحتياطية هذا؟",
+        "restoreCvdWarning": "Subscription device keys live in this device's keychain, not in the backup. Restoring on the same device reuses the existing keys. On a new device or after reinstalling (keychain cleared), each remote subscription registers a new device key on its next update — if your provider limits devices, you may need to unbind old ones."
       },
       "auto": {
         "title": "Automatic backup",

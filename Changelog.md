@@ -12,6 +12,7 @@
 <summary><strong> ✨ 新增功能 </strong></summary>
 
 - 增加 TrustTunnel, OpenVPN, Tailscale, GostRelay 节点显示支持
+- 新增 CVD 订阅设备绑定与加密下发支持，降低订阅链接泄露后的持续滥用风险。了解更多：[CVD 方案介绍](./docs/cvd-protocol-introduction.md)；订阅服务开发者请参考：[服务端集成文档](./docs/cvd-server-integration.md)。
 
 </details>
 

@@ -1,4 +1,8 @@
 _version: 1
+errors:
+  cvdDeviceLimit: Device limit reached. Unbind an old device in your provider's dashboard, then try again.
+  cvdKeyMissing: This subscription's device key is missing (the device may have been restored). Remove and re-add the subscription to re-register it.
+  cvdKeyReregistered: Device key re-registered for this subscription; it will sync on the next update.
 notifications:
   dashboardToggled:
     title: Dashboard

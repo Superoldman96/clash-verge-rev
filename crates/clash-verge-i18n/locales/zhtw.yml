@@ -1,4 +1,8 @@
 _version: 1
+errors:
+  cvdDeviceLimit: 裝置數已達上限，請前往機場控制台解綁舊裝置後重試
+  cvdKeyMissing: 此訂閱的裝置密鑰遺失（可能因還原到新裝置）。請刪除並重新加入該訂閱以重新註冊。
+  cvdKeyReregistered: 已為此訂閱重新註冊裝置密鑰,將在下次更新時同步。
 notifications:
   dashboardToggled:
     title: 儀表板

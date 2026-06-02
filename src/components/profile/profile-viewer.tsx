@@ -133,7 +133,8 @@ export function ProfileViewer({ onChange, ref }: ProfileViewerProps) {
             await patchProfile(form.uid, item)
           }
         } else {
-          // 远程配置使用回退机制
+          // 远程配置：编辑用代理回退重试；新建的代理回退已下沉到后端，
+          // 后端用同一个 uid（同一 CVD 设备密钥/槽位）跨代理重试，前端不再重试。
           try {
             // 尝试正常操作
             if (openType === 'new') {
@@ -142,13 +143,16 @@ export function ProfileViewer({ onChange, ref }: ProfileViewerProps) {
               if (!form.uid) throw new Error('UID not found')
               await patchProfile(form.uid, item)
             }
-          } catch {
-            // 首次创建/更新失败，尝试使用自身代理
+          } catch (err) {
+            // 新建：后端已跨代理重试并复用同一密钥，前端再次 createProfile 会注册新公钥、
+            // 可能额外占用一个设备槽位，因此直接上抛由外层提示错误。
+            if (openType === 'new') throw err
+
+            // 编辑：用自身代理重试 patch，再恢复原始代理设置
+            if (!form.uid) throw new Error('UID not found', { cause: err })
             showNotice.info(
               'profiles.modals.profileForm.feedback.notifications.creationRetry',
             )
-
-            // 使用自身代理的配置
             const retryItem = {
               ...item,
               option: {
@@ -157,17 +161,9 @@ export function ProfileViewer({ onChange, ref }: ProfileViewerProps) {
                 self_proxy: true,
               },
             }
-
-            // 使用自身代理再次尝试
-            if (openType === 'new') {
-              await createProfile(retryItem, fileDataRef.current)
-            } else {
-              if (!form.uid) throw new Error('UID not found')
-              await patchProfile(form.uid, retryItem)
-
-              // 编辑模式下恢复原始代理设置
-              await patchProfile(form.uid, { option: originalOptions })
-            }
+            await patchProfile(form.uid, retryItem)
+            // 编辑模式下恢复原始代理设置
+            await patchProfile(form.uid, { option: originalOptions })
 
             showNotice.success(
               'profiles.modals.profileForm.feedback.notifications.creationSuccess',

@@ -352,7 +352,8 @@
         "webdavRefreshSuccess": "WebDAV 更新成功",
         "webdavRefreshFailed": "WebDAV 更新失敗: {{error}}",
         "confirmDelete": "確認是否刪除此備份檔案嗎？",
-        "confirmRestore": "確認還原此份檔案嗎？"
+        "confirmRestore": "確認還原此份檔案嗎？",
+        "restoreCvdWarning": "Subscription device keys live in this device's keychain, not in the backup. Restoring on the same device reuses the existing keys. On a new device or after reinstalling (keychain cleared), each remote subscription registers a new device key on its next update — if your provider limits devices, you may need to unbind old ones."
       },
       "auto": {
         "title": "自動備份",

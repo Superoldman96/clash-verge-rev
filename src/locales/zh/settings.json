@@ -352,7 +352,8 @@
         "webdavRefreshSuccess": "WebDAV 刷新成功",
         "webdavRefreshFailed": "WebDAV 刷新失败: {{error}}",
         "confirmDelete": "确认删除此备份文件吗？",
-        "confirmRestore": "确认恢复此份文件吗？"
+        "confirmRestore": "确认恢复此份文件吗？",
+        "restoreCvdWarning": "订阅的设备密钥仅存于本机钥匙串，不随备份导出。在同一设备恢复会复用已有密钥；仅当在新设备或重装系统后（钥匙串已清空）恢复时，每个远程订阅才会在下次更新时注册新的设备密钥，此时若机场限制设备数，可能需要先解绑旧设备。"
       },
       "auto": {
         "title": "自动备份",

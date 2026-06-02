@@ -85,7 +85,7 @@ async fn import_subscription(url: &str, name: Option<&String>) {
         profiles.latest_arc().current.is_some()
     };
 
-    let Some(mut item) = fetch_profile_item(url, name).await else {
+    let Some((mut item, device_key)) = fetch_profile_item(url, name).await else {
         return;
     };
 
@@ -95,6 +95,18 @@ async fn import_subscription(url: &str, name: Option<&String>) {
         Config::profiles().await.discard();
         handle::Handle::notice_message("import_sub_url::error", e.to_string());
         return;
+    }
+
+    // Persist the device key only if CVD actually engaged (item cached a pubkey). A plaintext airport
+    // leaves cvd_pub None, so we skip the keychain write (and its macOS prompt).
+    if item.cvd_pub.is_some()
+        && let Err(e) = device_key.persist()
+    {
+        logging!(
+            warn,
+            Type::Config,
+            "cvd: failed to persist device key after deep-link import: {e}"
+        );
     }
 
     Config::profiles().await.apply();
@@ -107,9 +119,12 @@ async fn import_subscription(url: &str, name: Option<&String>) {
     post_import_updates(&uid, had_current_profile).await;
 }
 
-async fn fetch_profile_item(url: &str, name: Option<&String>) -> Option<PrfItem> {
-    match PrfItem::from_url(url, name, None, None).await {
-        Ok(item) => Some(item),
+async fn fetch_profile_item(url: &str, name: Option<&String>) -> Option<(PrfItem, crate::cvd::DeviceKey)> {
+    // New remote profile: own the device key; the caller persists it after the profile is saved.
+    let uid = help::get_uid("R");
+    let key = crate::cvd::DeviceKey::generate(&uid);
+    match PrfItem::from_url(url, name, None, None, &uid, crate::cvd::CvdMode::New(&key)).await {
+        Ok(item) => Some((item, key)),
         Err(e) => {
             logging!(error, Type::Config, "failed to parse profile from url: {:?}", e);
             handle::Handle::notice_message("import_sub_url::error", e.to_string());

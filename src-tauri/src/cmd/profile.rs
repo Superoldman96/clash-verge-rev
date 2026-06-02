@@ -70,27 +70,38 @@ pub async fn enhance_profiles() -> CmdResult<ValidationOutcome> {
 pub async fn import_profile(url: std::string::String, option: Option<PrfOption>) -> CmdResult {
     logging!(info, Type::Cmd, "[导入订阅] 开始导入: {}", help::mask_url(&url));
 
-    // 直接依赖 PrfItem::from_url 自身的超时/重试逻辑，不再使用 tokio::time::timeout 包裹
-    let item = &mut match PrfItem::from_url(&url, None, None, option.as_ref()).await {
-        Ok(it) => {
-            logging!(info, Type::Cmd, "[导入订阅] 下载完成，开始保存配置");
-            it
-        }
-        Err(e) => {
-            logging!(error, Type::Cmd, "[导入订阅] 下载失败: {}", e);
-            return Err(profile_import_error(&e).into());
-        }
-    };
+    // New remote profile: own the CVD device key here and persist it only after the profile is saved.
+    let uid = help::get_uid("R");
+    let key = crate::cvd::DeviceKey::generate(&uid);
 
-    match profiles_append_item_safe(item).await {
-        Ok(_) => match profiles_save_file_safe().await {
-            Ok(_) => {
-                logging!(info, Type::Cmd, "[导入订阅] 配置文件保存成功");
+    // 直接依赖 PrfItem::from_url 自身的超时/重试逻辑，不再使用 tokio::time::timeout 包裹
+    let item =
+        &mut match PrfItem::from_url(&url, None, None, option.as_ref(), &uid, crate::cvd::CvdMode::New(&key)).await {
+            Ok(it) => {
+                logging!(info, Type::Cmd, "[导入订阅] 下载完成，开始保存配置");
+                it
             }
             Err(e) => {
-                logging!(error, Type::Cmd, "[导入订阅] 保存配置文件失败: {}", e);
+                logging!(error, Type::Cmd, "[导入订阅] 下载失败: {}", e);
+                return Err(profile_import_error(&e).into());
             }
-        },
+        };
+
+    match profiles_append_item_safe(item).await {
+        Ok(_) => {
+            // Persist the device key only if CVD actually engaged (item cached a pubkey). A plaintext
+            // airport leaves cvd_pub None, so we skip the keychain write (and its macOS prompt).
+            if item.cvd_pub.is_some()
+                && let Err(e) = key.persist()
+            {
+                logging!(warn, Type::Cmd, "cvd: failed to persist device key after import: {e}");
+            }
+            if let Err(e) = profiles_save_file_safe().await {
+                logging!(error, Type::Cmd, "[导入订阅] 保存配置文件失败: {}", e);
+            } else {
+                logging!(info, Type::Cmd, "[导入订阅] 配置文件保存成功");
+            }
+        }
         Err(e) => {
             logging!(error, Type::Cmd, "[导入订阅] 保存配置失败: {}", e);
             return Err(format!("导入订阅失败: {}", e).into());
@@ -157,9 +168,27 @@ pub async fn update_profile(index: String, option: Option<PrfOption>) -> CmdResu
 /// 删除配置文件
 #[tauri::command]
 pub async fn delete_profile(index: String) -> CmdResult {
+    // Only touch the keychain if this profile actually cached a CVD key (invariant: cvd_pub ⟺
+    // keychain key). Read that BEFORE deleting the item. Skipping the keychain for the common
+    // (plaintext / non-CVD) case matters on macOS: keyring's delete does a find + a delete, each of
+    // which prompts for the keychain password on an item this binary isn't trusted for — so an
+    // unconditional delete_key popped the dialog twice on every profile deletion.
+    let had_cvd_key = {
+        let profiles = Config::profiles().await;
+        profiles
+            .latest_arc()
+            .get_item(index.as_str())
+            .ok()
+            .is_some_and(|it| it.cvd_pub.is_some())
+    };
+
     // 使用Send-safe helper函数
     let should_update = profiles_delete_item_safe(&index).await.stringify_err()?;
     profiles_save_file_safe().await.stringify_err()?;
+    // Best-effort cleanup of the CVD private key (only when the profile actually had one).
+    if had_cvd_key && let Err(e) = crate::cvd::delete_key(&index) {
+        logging!(warn, Type::Cmd, "Warning: 清理 CVD 密钥失败: {e}");
+    }
     if let Err(e) = Tray::global().update_tooltip().await {
         logging!(warn, Type::Cmd, "Warning: 异步更新托盘提示失败: {e}");
     }

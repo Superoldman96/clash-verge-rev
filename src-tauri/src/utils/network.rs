@@ -178,6 +178,7 @@ impl NetworkManager {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn get_with_tls_mode(
         &self,
         url: &str,
@@ -186,6 +187,7 @@ impl NetworkManager {
         user_agent: Option<String>,
         accept_invalid_certs: bool,
         tls_root_mode: TlsRootMode,
+        cvd_headers: HeaderMap,
     ) -> Result<HttpResponse> {
         let mut parsed = Url::parse(url)?;
         let mut extra_headers = HeaderMap::new();
@@ -218,6 +220,10 @@ impl NetworkManager {
 
         let mut request_builder = client.get(parsed);
 
+        // Merge CVD headers (and any future caller-supplied headers) with URL-userinfo auth.
+        for (key, value) in cvd_headers.iter() {
+            extra_headers.insert(key.clone(), value.clone());
+        }
         for (key, value) in extra_headers.iter() {
             request_builder = request_builder.header(key, value);
         }
@@ -292,6 +298,7 @@ impl NetworkManager {
         timeout_secs: Option<u64>,
         user_agent: Option<String>,
         accept_invalid_certs: bool,
+        extra_headers: HeaderMap,
     ) -> Result<HttpResponse> {
         let platform_result = self
             .get_with_tls_mode(
@@ -301,6 +308,7 @@ impl NetworkManager {
                 user_agent.clone(),
                 accept_invalid_certs,
                 TlsRootMode::PlatformVerifier,
+                extra_headers.clone(),
             )
             .await;
 
@@ -314,6 +322,7 @@ impl NetworkManager {
                     user_agent,
                     accept_invalid_certs,
                     TlsRootMode::StaticWebpkiRoots,
+                    extra_headers,
                 )
                 .await
                 .map_err(|fallback_err| {

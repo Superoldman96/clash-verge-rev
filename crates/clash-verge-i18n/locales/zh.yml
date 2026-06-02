@@ -1,4 +1,8 @@
 _version: 1
+errors:
+  cvdDeviceLimit: 设备数已达上限，请前往机场控制台解绑旧设备后重试
+  cvdKeyMissing: 该订阅的设备密钥缺失（可能因恢复到新设备）。请删除并重新添加该订阅以重新注册。
+  cvdKeyReregistered: 已为该订阅重新注册设备密钥,将在下次更新时同步。
 notifications:
   dashboardToggled:
     title: 仪表板

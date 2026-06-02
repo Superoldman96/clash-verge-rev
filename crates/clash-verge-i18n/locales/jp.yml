@@ -1,4 +1,8 @@
 _version: 1
+errors:
+  cvdDeviceLimit: デバイス数が上限に達しました。プロバイダーの管理画面で古いデバイスの登録を解除してから再試行してください。
+  cvdKeyMissing: このサブスクリプションのデバイスキーが見つかりません（デバイスを復元した可能性があります）。登録し直すには、サブスクリプションを削除して再追加してください。
+  cvdKeyReregistered: このサブスクリプションのデバイスキーを再登録しました。次回の更新時に同期されます。
 notifications:
   dashboardToggled:
     title: ダッシュボード

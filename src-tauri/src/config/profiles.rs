@@ -214,6 +214,23 @@ impl IProfiles {
         bail!("failed to find the profile item \"uid:{uid}\"")
     }
 
+    /// Set (or clear with `None`) the cached CVD public key for a profile, then persist. Used by the
+    /// refresh recovery to repoint a profile at a freshly re-registered key, or to drop the claim
+    /// when the keychain is unavailable. Touches only `cvd_pub` metadata — never the keychain.
+    pub async fn set_cvd_pub(&mut self, uid: &str, cvd_pub: Option<String>) -> Result<()> {
+        let items = self
+            .items
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("no profiles loaded"))?;
+        for each in items.iter_mut() {
+            if each.uid.as_deref() == Some(uid) {
+                each.cvd_pub = cvd_pub;
+                return self.save_file().await;
+            }
+        }
+        bail!("failed to find the profile item \"uid:{uid}\"")
+    }
+
     /// be used to update the remote item
     /// only patch `updated` `extra` `file_data`
     pub async fn update_item(&mut self, uid: &String, item: &mut PrfItem) -> Result<()> {
@@ -529,8 +546,22 @@ impl IProfiles {
 use crate::config::Config;
 
 pub async fn profiles_append_item_with_filedata_safe(item: &PrfItem, file_data: Option<String>) -> Result<()> {
-    let item = &mut PrfItem::from(item, file_data).await?;
-    profiles_append_item_safe(item).await
+    let (mut built, device_key) = PrfItem::from(item, file_data).await?;
+    profiles_append_item_safe(&mut built).await?;
+    // Write the CVD private key only now that the profile is durably saved (write-key-last), and only
+    // if CVD actually engaged (item cached a pubkey). A plaintext airport leaves cvd_pub None, so we
+    // skip the keychain write (and its macOS prompt) entirely.
+    if let Some(key) = device_key
+        && built.cvd_pub.is_some()
+        && let Err(e) = key.persist()
+    {
+        logging!(
+            warn,
+            Type::Config,
+            "cvd: failed to persist device key after profile create: {e}"
+        );
+    }
+    Ok(())
 }
 
 pub async fn profiles_append_item_safe(item: &mut PrfItem) -> Result<()> {
@@ -588,6 +619,19 @@ pub async fn profiles_draft_update_item_safe(index: &String, item: &mut PrfItem)
         .await
         .with_data_modify(|mut profiles| async move {
             profiles.update_item(index, item).await?;
+            Ok((profiles, ()))
+        })
+        .await
+}
+
+/// Set (or clear) a profile's cached CVD public key. `with_data_modify` clones-then-commits and
+/// holds no lock across the await, so this is safe to call from inside a refresh.
+pub async fn profiles_set_cvd_pub_safe(uid: &str, cvd_pub: Option<String>) -> Result<()> {
+    let uid = uid.to_owned();
+    Config::profiles()
+        .await
+        .with_data_modify(|mut profiles| async move {
+            profiles.set_cvd_pub(&uid, cvd_pub).await?;
             Ok((profiles, ()))
         })
         .await

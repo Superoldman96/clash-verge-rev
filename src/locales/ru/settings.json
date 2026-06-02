@@ -352,7 +352,8 @@
         "webdavRefreshSuccess": "Список WebDAV успешно обновлён",
         "webdavRefreshFailed": "Не удалось обновить список WebDAV: {{error}}",
         "confirmDelete": "Вы уверены, что хотите удалить этот файл резервной копии?",
-        "confirmRestore": "Вы уверены, что хотите восстановить этот файл резервной копии?"
+        "confirmRestore": "Вы уверены, что хотите восстановить этот файл резервной копии?",
+        "restoreCvdWarning": "Subscription device keys live in this device's keychain, not in the backup. Restoring on the same device reuses the existing keys. On a new device or after reinstalling (keychain cleared), each remote subscription registers a new device key on its next update — if your provider limits devices, you may need to unbind old ones."
       },
       "auto": {
         "title": "Автоматическое резервное копирование",

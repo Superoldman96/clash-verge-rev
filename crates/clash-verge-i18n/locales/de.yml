@@ -1,4 +1,8 @@
 _version: 1
+errors:
+  cvdDeviceLimit: Gerätelimit erreicht. Entferne ein altes Gerät in der Konsole deines Anbieters und versuche es erneut.
+  cvdKeyMissing: Der Geräteschlüssel für dieses Abonnement fehlt (das Gerät wurde möglicherweise wiederhergestellt). Entferne das Abonnement und füge es erneut hinzu, um es neu zu registrieren.
+  cvdKeyReregistered: Geräteschlüssel für dieses Abonnement neu registriert; er wird bei der nächsten Aktualisierung synchronisiert.
 notifications:
   dashboardToggled:
     title: Übersicht
