@@ -18,7 +18,7 @@ import {
 } from '@/providers/app-data-context'
 import { patchClashMode } from '@/services/cmds'
 import { showNotice } from '@/services/notice-service'
-import { queryClient } from '@/services/query-client'
+import { setCacheData } from '@/services/query-client'
 import type { TranslationKey } from '@/types/generated/i18n-keys'
 
 const CLASH_MODES = ['rule', 'global', 'direct'] as const
@@ -114,9 +114,8 @@ export const ClashModeCard = () => {
     // 成功：写穿主源缓存，使实时 mode 立即反映新值——即使随后的 /configs refetch
     // 失败（TanStack 会保留旧 data），controllerMode 也不会再压过新值导致闪回。
     // 若主源从未成功过（old 为 undefined）则保持不动，改由兜底来源反映。
-    queryClient.setQueryData<BaseConfig | undefined>(
-      ['getClashConfig'],
-      (old) => (old ? { ...old, mode } : old),
+    setCacheData<BaseConfig>(['getClashConfig'], (old) =>
+      old ? { ...old, mode } : old,
     )
     // 刷新主源与兜底源以与后端对齐，待数据落地后再清除乐观状态
     await Promise.allSettled([refreshClashConfig(), refetchBackendMode()])

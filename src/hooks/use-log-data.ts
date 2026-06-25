@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { MihomoWebSocket, type LogLevel } from 'tauri-plugin-mihomo-api'
 
 import { getClashLogs } from '@/services/cmds'
-import { queryClient } from '@/services/query-client'
+import { setCacheData } from '@/services/query-client'
 
 import { useClashLog } from './use-clash-log'
 import { useMihomoWsSubscription } from './use-mihomo-ws-subscription'
@@ -155,7 +155,7 @@ export const useLogData = () => {
   const refreshGetClashLog = (clear = false) => {
     if (clear) {
       if (subscriptionCacheKey) {
-        queryClient.setQueryData<ILogItem[]>([subscriptionCacheKey], [])
+        setCacheData<ILogItem[]>([subscriptionCacheKey], [])
       }
     } else {
       hasLoadedInitialLogsRef.current = false

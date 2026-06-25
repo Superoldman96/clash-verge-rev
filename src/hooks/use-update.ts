@@ -1,5 +1,4 @@
-import { useQuery } from '@/services/query-client'
-import { queryClient } from '@/services/query-client'
+import { setCacheData, useQuery } from '@/services/query-client'
 import { checkUpdateSafe } from '@/services/update'
 
 import { useVerge } from './use-verge'
@@ -24,7 +23,7 @@ export const readLastCheckTime = (): number | null => {
 export const updateLastCheckTime = (timestamp?: number): number => {
   const now = timestamp ?? Date.now()
   localStorage.setItem(LAST_CHECK_KEY, now.toString())
-  queryClient.setQueryData([LAST_CHECK_KEY], now)
+  setCacheData([LAST_CHECK_KEY], now)
   return now
 }
 
@@ -54,6 +53,7 @@ export const useUpdate = (enabled: boolean = true) => {
     retry: 2,
     staleTime: 60 * 60 * 1000,
     refetchInterval: 24 * 60 * 60 * 1000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
   })
 

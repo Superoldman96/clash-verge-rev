@@ -18,7 +18,7 @@ import {
   resolveThemeMode,
   getPreloadConfig,
 } from './services/preload'
-import { queryClientConfig } from './services/query-client'
+import { swrConfig } from './services/query-client'
 import {
   LoadingCacheProvider,
   ThemeModeProvider,
@@ -51,7 +51,7 @@ const initializeApp = (initialThemeMode: 'light' | 'dark') => {
     <React.StrictMode>
       <ComposeContextProvider contexts={contexts}>
         <BaseErrorBoundary>
-          <SWRConfig value={queryClientConfig}>
+          <SWRConfig value={swrConfig}>
             <WindowProvider>
               <AppDataProvider>
                 <RouterProvider router={router} />

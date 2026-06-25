@@ -2,7 +2,12 @@ import { useLocalStorage } from 'foxact/use-local-storage'
 import { type MutableRefObject, useCallback, useEffect, useRef } from 'react'
 import { type Message, type MihomoWebSocket } from 'tauri-plugin-mihomo-api'
 
-import { queryClient, useQuery } from '@/services/query-client'
+import {
+  getCacheData,
+  removeCacheData,
+  setCacheData,
+  useQuery,
+} from '@/services/query-client'
 
 export const RECONNECT_DELAY_MS = 1000
 
@@ -137,7 +142,7 @@ const createSharedSubscriptionEntry = (
 /**
  * Mirrors SWR's MutatorCallback: consumers can pass either a plain value or a
  * functional updater `(current?: T) => T`.  The functional form is resolved
- * against the current cache entry before calling `queryClient.setQueryData`.
+ * against the current cache entry before calling `setCacheData`.
  */
 type NextFn<T> = (
   error?: any,
@@ -205,7 +210,7 @@ export const useMihomoWsSubscription = <T>(
     ): T => {
       if (typeof data === 'function') {
         const updater = data as (current?: T) => T | undefined
-        const current = queryClient.getQueryData<T>([cacheKey])
+        const current = getCacheData<T>([cacheKey])
         return updater(current) ?? fallbackData
       }
       return data ?? fallbackData
@@ -215,13 +220,11 @@ export const useMihomoWsSubscription = <T>(
 
   const response = useQuery<T>({
     queryKey: responseCacheKey ? [responseCacheKey] : ['$sub$__disabled__'],
-    queryFn: () =>
-      queryClient.getQueryData<T>([responseCacheKey!]) ?? fallbackData,
+    queryFn: () => getCacheData<T>([responseCacheKey!]) ?? fallbackData,
     initialData: () =>
-      queryClient.getQueryData<T>([responseCacheKey ?? '$sub$__disabled__']) ??
+      getCacheData<T>([responseCacheKey ?? '$sub$__disabled__']) ??
       fallbackData,
     staleTime: Infinity,
-    gcTime: 30_000,
     enabled: subscriptionCacheKey !== null,
   })
 
@@ -248,7 +251,7 @@ export const useMihomoWsSubscription = <T>(
       }
       if (data === undefined) return
       const resolved = resolveNextData(data, subscriptionCacheKey)
-      queryClient.setQueryData<T>([subscriptionCacheKey], resolved)
+      setCacheData<T>([subscriptionCacheKey], resolved)
     }
 
     if (throttleMs && throttleMs > 0) {
@@ -351,7 +354,7 @@ export const useMihomoWsSubscription = <T>(
 
   const refresh = useCallback(() => {
     if (subscriptionCacheKey) {
-      queryClient.removeQueries({ queryKey: [subscriptionCacheKey] })
+      removeCacheData([subscriptionCacheKey])
     }
     setDate(Date.now())
   }, [subscriptionCacheKey, setDate])
