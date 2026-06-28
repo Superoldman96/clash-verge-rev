@@ -10,12 +10,14 @@
 - 修复前端连接页面导致的内存泄漏
 - macOS 12(Monterey) 首页 IP 卡兼容性
 - 代理卡可能显示的通信错误，但实际可用
+- 修复 Fake-IP 模式开启 IPv6 后未生成 fake-ip-range6
 
 <details>
 <summary><strong> ✨ 新增功能 </strong></summary>
 
 - 增加 TrustTunnel, OpenVPN, Tailscale, GostRelay 节点显示支持
-- 全局扩展脚本增加恢复默认按钮、
+- 全局扩展脚本增加恢复默认按钮
+- DNS 添加 fake-ip-range6 可配置项 
 
 </details>
 

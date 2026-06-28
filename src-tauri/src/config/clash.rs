@@ -433,6 +433,7 @@ pub struct IClashDNS {
     pub default_nameserver: Option<Vec<String>>,
     pub enhanced_mode: Option<String>,
     pub fake_ip_range: Option<String>,
+    pub fake_ip_range6: Option<String>,
     pub use_hosts: Option<bool>,
     pub fake_ip_filter: Option<Vec<String>>,
     pub nameserver: Option<Vec<String>>,
