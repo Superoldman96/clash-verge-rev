@@ -32,6 +32,7 @@ interface SharedSubscriptionEntry {
 }
 
 const sharedSubscriptions = new Map<string, SharedSubscriptionEntry>()
+const initialSubscriptionDate = Date.now()
 
 const syncSharedWsRefs = (entry: SharedSubscriptionEntry) => {
   entry.refHolders.forEach((ref) => {
@@ -190,8 +191,7 @@ export const useMihomoWsSubscription = <T>(
     setupHandlers,
   } = options
 
-  // eslint-disable-next-line @eslint-react/purity
-  const [date, setDate] = useLocalStorage(storageKey, Date.now())
+  const [date, setDate] = useLocalStorage(storageKey, initialSubscriptionDate)
   const subscriptKey = buildSubscriptKey(date)
   const subscriptionCacheKey = subscriptKey ? `$sub$${subscriptKey}` : null
   const lastSubscriptionCacheKeyRef = useRef<string | null>(null)
